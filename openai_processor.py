@@ -65,13 +65,13 @@ You MUST follow these instructions literally and precisely."""
         print("Step 2: Senior analyst - Validation check...")
         validation_result = self._validate_extraction(extracted_text, initial_result, pdf_filename)
         
-        # Step 3: Final correction (only if needed, using same extracted_text)
+        # Step 3: Final correction (only if needed, using original PDF file with Gemini)
         if validation_result.get("all_correct", True):
             print("✅ All fields validated correctly - using initial extraction")
             return initial_result
         else:
-            print("⚠️ Issues found - Step 3: Final correction...")
-            final_result = self._correct_extraction(extracted_text, initial_result, validation_result, pdf_filename)
+            print("⚠️ Issues found - Step 3: Gemini Flash correction with original PDF...")
+            final_result = self._correct_extraction(pdf_path, initial_result, validation_result, pdf_filename)
             return final_result
     
     def _extract_document_data(self, extracted_text: str, pdf_filename: str) -> Dict[str, Any]:
@@ -414,16 +414,29 @@ Return a JSON object with validation results in this format:
             print(f"⚠️ Validation check failed: {e}")
             return {"all_correct": True}
     
-    def _correct_extraction(self, extracted_text: str, initial_result: Dict[str, Any], validation_result: Dict[str, Any], pdf_filename: str) -> Dict[str, Any]:
-        """Step 3: Final correction based on validation issues - uses same extracted text"""
+    def _correct_extraction(self, pdf_path: str, initial_result: Dict[str, Any], validation_result: Dict[str, Any], pdf_filename: str) -> Dict[str, Any]:
+        """Step 3: Final correction using Gemini Flash with original PDF file"""
         
-        correction_prompt = f"""
+        # Check if we have valid PDF path
+        if not pdf_path or not os.path.exists(pdf_path):
+            print("⚠️ No valid PDF path available for Gemini correction")
+            return initial_result
+        
+        try:
+            import google.generativeai as genai
+            
+            # Configure Gemini (you'll need to set GOOGLE_API_KEY in your .env file)
+            genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            # Upload the PDF file to Gemini
+            print("Uploading PDF to Gemini Flash...")
+            pdf_file = genai.upload_file(pdf_path)
+            
+            correction_prompt = f"""
 # FINAL CORRECTION STEP
 
-You are a **SENIOR DOCUMENT ANALYST** making final corrections.
-
-## ORIGINAL DOCUMENT TEXT:
-{extracted_text}
+You are a **SENIOR DOCUMENT ANALYST** making final corrections using the original PDF file.
 
 ## JUNIOR ANALYST'S EXTRACTION:
 {json.dumps(initial_result, indent=2)}
@@ -432,31 +445,19 @@ You are a **SENIOR DOCUMENT ANALYST** making final corrections.
 {json.dumps(validation_result, indent=2)}
 
 ## YOUR TASK:
-Based on the validation issues found, correct the junior's extraction using the original document text. Focus only on fixing the identified problems while keeping correct information unchanged.
+Based on the validation issues found, correct the junior's extraction using the original PDF document. Focus only on fixing the identified problems while keeping correct information unchanged.
 
 Return the complete corrected JSON in the same structure as the original extraction.
 
 **RESPOND WITH ONLY THE CORRECTED JSON OBJECT - NO OTHER TEXT**
 """
-        
-        try:
-            response = self.client.chat.completions.create(
-                model=self.deployment_name,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a senior analyst making final corrections based on identified validation issues."
-                    },
-                    {
-                        "role": "user", 
-                        "content": correction_prompt
-                    }
-                ],
-            )
             
-            response_content = response.choices[0].message.content.strip()
+            print("Sending correction request to Gemini Flash...")
+            response = model.generate_content([pdf_file, correction_prompt])
             
-            # Clean response
+            response_content = response.text.strip()
+            
+            # Clean response (same cleaning logic as before)
             if response_content.startswith("```json"):
                 response_content = response_content[7:] 
             if response_content.startswith("```"):
@@ -478,11 +479,11 @@ Return the complete corrected JSON in the same structure as the original extract
             
             self._fix_output_structure(corrected_result)
             
-            print("✅ Final correction completed")
+            print("✅ Gemini Flash correction completed")
             return corrected_result
             
         except Exception as e:
-            print(f"⚠️ Final correction failed: {e}")
+            print(f"⚠️ Gemini Flash correction failed: {e}")
             print("Returning initial result...")
             return initial_result
     
