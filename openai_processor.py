@@ -61,17 +61,17 @@ You MUST follow these instructions literally and precisely."""
         print("Step 1: Junior analyst - Initial document analysis...")
         initial_result = self._extract_document_data(extracted_text, pdf_filename)
         
-        # Step 2: Senior analyst - Validation check only
+        # Step 2: Senior analyst - Validation check only (using same extracted_text)
         print("Step 2: Senior analyst - Validation check...")
-        validation_result, fresh_pdf_text = self._validate_extraction(pdf_path, initial_result, pdf_filename)
+        validation_result = self._validate_extraction(extracted_text, initial_result, pdf_filename)
         
-        # Step 3: Final correction (only if needed)
+        # Step 3: Final correction (only if needed, using same extracted_text)
         if validation_result.get("all_correct", True):
             print("✅ All fields validated correctly - using initial extraction")
             return initial_result
         else:
             print("⚠️ Issues found - Step 3: Final correction...")
-            final_result = self._correct_extraction(fresh_pdf_text, initial_result, validation_result, pdf_filename)
+            final_result = self._correct_extraction(extracted_text, initial_result, validation_result, pdf_filename)
             return final_result
     
     def _extract_document_data(self, extracted_text: str, pdf_filename: str) -> Dict[str, Any]:
@@ -329,41 +329,22 @@ Extract comprehensive information from the document following the above structur
         print("✅ Basic validation passed")
         return True
     
-    def _validate_extraction(self, pdf_path: str, initial_result: Dict[str, Any], pdf_filename: str) -> tuple[Dict[str, Any], str]:
-        """Step 2: Senior analyst validation - identifies mistakes only"""
-        
-        # Check if pdf_path is provided and valid
-        if not pdf_path or not os.path.exists(pdf_path):
-            print("⚠️ PDF path not provided or file doesn't exist - skipping validation")
-            return {"all_correct": True}, ""
-        
-        # Extract fresh text from the original PDF for validation
-        try:
-            from pdf_extractor import ComprehensivePDFExtractor
-            pdf_extractor = ComprehensivePDFExtractor()
-            fresh_pdf_text = pdf_extractor.extract_text(pdf_path)
-            
-            if not fresh_pdf_text or len(fresh_pdf_text.strip()) < 10:
-                print("⚠️ Could not extract text from PDF for validation")
-                return {"all_correct": True}, ""
-                
-        except Exception as e:
-            print(f"⚠️ Could not extract text from PDF: {e}")
-            return {"all_correct": True}, ""
+    def _validate_extraction(self, extracted_text: str, initial_result: Dict[str, Any], pdf_filename: str) -> Dict[str, Any]:
+        """Step 2: Senior analyst validation - identifies mistakes only using same extracted text"""
         
         validation_prompt = f"""
 # SENIOR ANALYST VALIDATION CHECK
 
 You are a **SENIOR DOCUMENT ANALYST** performing a validation check only.
 
-## ORIGINAL PDF DOCUMENT CONTENT:
-{fresh_pdf_text}
+## ORIGINAL DOCUMENT TEXT:
+{extracted_text}
 
 ## JUNIOR ANALYST'S EXTRACTION:
 {json.dumps(initial_result, indent=2)}
 
 ## YOUR TASK:
-Review the junior's extraction against the original PDF content and identify any mistakes or missing information. 
+Review the junior's extraction against the original document text and identify any mistakes or missing information. 
 
 **DO NOT** provide the corrected JSON - only identify what's wrong.
 
@@ -427,27 +408,22 @@ Return a JSON object with validation results in this format:
             validation_result = json.loads(response_content)
             
             print(f"✅ Validation check completed - All correct: {validation_result.get('all_correct', False)}")
-            return validation_result, fresh_pdf_text
+            return validation_result
             
         except Exception as e:
             print(f"⚠️ Validation check failed: {e}")
-            return {"all_correct": True}, fresh_pdf_text
+            return {"all_correct": True}
     
-    def _correct_extraction(self, fresh_pdf_text: str, initial_result: Dict[str, Any], validation_result: Dict[str, Any], pdf_filename: str) -> Dict[str, Any]:
-        """Step 3: Final correction based on validation issues - uses already extracted PDF text"""
-        
-        # Check if we have valid PDF text
-        if not fresh_pdf_text or len(fresh_pdf_text.strip()) < 10:
-            print("⚠️ No valid PDF text available for correction")
-            return initial_result
+    def _correct_extraction(self, extracted_text: str, initial_result: Dict[str, Any], validation_result: Dict[str, Any], pdf_filename: str) -> Dict[str, Any]:
+        """Step 3: Final correction based on validation issues - uses same extracted text"""
         
         correction_prompt = f"""
 # FINAL CORRECTION STEP
 
 You are a **SENIOR DOCUMENT ANALYST** making final corrections.
 
-## ORIGINAL PDF DOCUMENT CONTENT:
-{fresh_pdf_text}
+## ORIGINAL DOCUMENT TEXT:
+{extracted_text}
 
 ## JUNIOR ANALYST'S EXTRACTION:
 {json.dumps(initial_result, indent=2)}
@@ -456,7 +432,7 @@ You are a **SENIOR DOCUMENT ANALYST** making final corrections.
 {json.dumps(validation_result, indent=2)}
 
 ## YOUR TASK:
-Based on the validation issues found, correct the junior's extraction using the original PDF content. Focus only on fixing the identified problems while keeping correct information unchanged.
+Based on the validation issues found, correct the junior's extraction using the original document text. Focus only on fixing the identified problems while keeping correct information unchanged.
 
 Return the complete corrected JSON in the same structure as the original extraction.
 
