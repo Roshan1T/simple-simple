@@ -486,4 +486,8 @@ Return the complete corrected JSON in the same structure as the original extract
             print(f"⚠️ Gemini Flash correction failed: {e}")
             print("Returning initial result...")
             return initial_result
+
+
+
+            AIzaSyA_Jut1nsFoDqpO4tRRmPgmjmpBGKC63vo
     
