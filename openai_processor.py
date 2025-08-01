@@ -63,7 +63,7 @@ You MUST follow these instructions literally and precisely."""
         
         # Step 2: Senior analyst - Validation check only
         print("Step 2: Senior analyst - Validation check...")
-        validation_result = self._validate_extraction(pdf_path, initial_result, pdf_filename)
+        validation_result, fresh_pdf_text = self._validate_extraction(pdf_path, initial_result, pdf_filename)
         
         # Step 3: Final correction (only if needed)
         if validation_result.get("all_correct", True):
@@ -71,7 +71,7 @@ You MUST follow these instructions literally and precisely."""
             return initial_result
         else:
             print("⚠️ Issues found - Step 3: Final correction...")
-            final_result = self._correct_extraction(pdf_path, initial_result, validation_result, pdf_filename)
+            final_result = self._correct_extraction(fresh_pdf_text, initial_result, validation_result, pdf_filename)
             return final_result
     
     def _extract_document_data(self, extracted_text: str, pdf_filename: str) -> Dict[str, Any]:
@@ -329,8 +329,13 @@ Extract comprehensive information from the document following the above structur
         print("✅ Basic validation passed")
         return True
     
-    def _validate_extraction(self, pdf_path: str, initial_result: Dict[str, Any], pdf_filename: str) -> Dict[str, Any]:
+    def _validate_extraction(self, pdf_path: str, initial_result: Dict[str, Any], pdf_filename: str) -> tuple[Dict[str, Any], str]:
         """Step 2: Senior analyst validation - identifies mistakes only"""
+        
+        # Check if pdf_path is provided and valid
+        if not pdf_path or not os.path.exists(pdf_path):
+            print("⚠️ PDF path not provided or file doesn't exist - skipping validation")
+            return {"all_correct": True}, ""
         
         # Extract fresh text from the original PDF for validation
         try:
@@ -340,11 +345,11 @@ Extract comprehensive information from the document following the above structur
             
             if not fresh_pdf_text or len(fresh_pdf_text.strip()) < 10:
                 print("⚠️ Could not extract text from PDF for validation")
-                return {"all_correct": True}
+                return {"all_correct": True}, ""
                 
         except Exception as e:
             print(f"⚠️ Could not extract text from PDF: {e}")
-            return {"all_correct": True}
+            return {"all_correct": True}, ""
         
         validation_prompt = f"""
 # SENIOR ANALYST VALIDATION CHECK
@@ -422,27 +427,18 @@ Return a JSON object with validation results in this format:
             validation_result = json.loads(response_content)
             
             print(f"✅ Validation check completed - All correct: {validation_result.get('all_correct', False)}")
-            return validation_result
+            return validation_result, fresh_pdf_text
             
         except Exception as e:
             print(f"⚠️ Validation check failed: {e}")
-            return {"all_correct": True}
+            return {"all_correct": True}, fresh_pdf_text
     
-    def _correct_extraction(self, pdf_path: str, initial_result: Dict[str, Any], validation_result: Dict[str, Any], pdf_filename: str) -> Dict[str, Any]:
-        """Step 3: Final correction based on validation issues"""
+    def _correct_extraction(self, fresh_pdf_text: str, initial_result: Dict[str, Any], validation_result: Dict[str, Any], pdf_filename: str) -> Dict[str, Any]:
+        """Step 3: Final correction based on validation issues - uses already extracted PDF text"""
         
-        # Extract fresh text from the original PDF
-        try:
-            from pdf_extractor import ComprehensivePDFExtractor
-            pdf_extractor = ComprehensivePDFExtractor()
-            fresh_pdf_text = pdf_extractor.extract_text(pdf_path)
-            
-            if not fresh_pdf_text or len(fresh_pdf_text.strip()) < 10:
-                print("⚠️ Could not extract text from PDF for correction")
-                return initial_result
-                
-        except Exception as e:
-            print(f"⚠️ Could not extract text from PDF: {e}")
+        # Check if we have valid PDF text
+        if not fresh_pdf_text or len(fresh_pdf_text.strip()) < 10:
+            print("⚠️ No valid PDF text available for correction")
             return initial_result
         
         correction_prompt = f"""
